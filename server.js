@@ -116,7 +116,33 @@ app.get('/api/agents', async (req, res) => {
       });
     }
     
-    const agents = Object.values(agentMap).sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
+    const now = Date.now();
+    const agents = Object.values(agentMap).sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt).map(agent => {
+      const ageMs = now - agent.latestUpdatedAt;
+      let status = 'unknown';
+      let statusLabel = '알 수 없음';
+      if (ageMs < 2 * 60 * 1000) {
+        status = 'active';
+        statusLabel = '작업중';
+      } else if (ageMs < 30 * 60 * 1000) {
+        status = 'idle';
+        statusLabel = '대기중';
+      } else if (ageMs < 24 * 60 * 60 * 1000) {
+        status = 'sleeping';
+        statusLabel = '휴면';
+      } else {
+        status = 'offline';
+        statusLabel = '오프라인';
+      }
+      const lastActivityAgo = ageMs < 60000
+        ? `${Math.floor(ageMs/1000)}초 전`
+        : ageMs < 3600000
+          ? `${Math.floor(ageMs/60000)}분 전`
+          : ageMs < 86400000
+            ? `${Math.floor(ageMs/3600000)}시간 전`
+            : `${Math.floor(ageMs/86400000)}일 전`;
+      return { ...agent, status, statusLabel, lastActivityAgo, ageMs };
+    });
     res.json({ agents, count: agents.length });
   } catch (err) {
     console.error('/api/agents error:', err.message);
@@ -377,6 +403,102 @@ app.get('/api/library/file', async (req, res) => {
     res.type('text/plain; charset=utf-8').send(content);
   } catch (err) {
     console.error('/api/library/file error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/active-sessions — running sessions only
+app.get('/api/active-sessions', async (req, res) => {
+  try {
+    const sessions = await fetchAllSessions();
+    const running = sessions
+      .filter(s => s.status === 'running' || s.status === 'active')
+      .map(s => ({
+        agentId: s.agentId,
+        sessionId: s.sessionId,
+        key: s.key,
+        model: s.model,
+        totalTokens: s.totalTokens,
+        startedAt: s.startedAt,
+        runtimeMs: s.runtimeMs || s.ageMs,
+      }));
+    res.json({ sessions: running, count: running.length });
+  } catch (err) {
+    console.error('/api/active-sessions error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/journal — list all agent memory/*.md files
+app.get('/api/journal', async (req, res) => {
+  try {
+    const agentsDir = '/home/thefool/.openclaw/agents';
+    const agentDirs = fs.readdirSync(agentsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+
+    const entries = [];
+    for (const agentId of agentDirs) {
+      const memoryDir = `/home/thefool/.openclaw/workspace-${agentId}/memory`;
+      if (!fs.existsSync(memoryDir)) continue;
+      try {
+        const files = fs.readdirSync(memoryDir, { withFileTypes: true })
+          .filter(f => f.isFile() && f.name.endsWith('.md'));
+        for (const file of files) {
+          const fullPath = path.join(memoryDir, file.name);
+          const stat = fs.statSync(fullPath);
+          // Extract date from filename: YYYY-MM-DD.md
+          const dateMatch = file.name.match(/^(\d{4}-\d{2}-\d{2})/);
+          entries.push({
+            agentId,
+            date: dateMatch ? dateMatch[1] : file.name.replace('.md', ''),
+            filename: file.name,
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+          });
+        }
+      } catch {}
+    }
+
+    // Sort by date descending
+    entries.sort((a, b) => b.date.localeCompare(a.date));
+    res.json({ entries, count: entries.length });
+  } catch (err) {
+    console.error('/api/journal error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/journal/:agentId/:filename — serve journal file content
+app.get('/api/journal/:agentId/:filename', async (req, res) => {
+  try {
+    const { agentId, filename } = req.params;
+
+    // Security: no path traversal
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(403).json({ error: 'Forbidden: invalid filename' });
+    }
+
+    const filePath = `/home/thefool/.openclaw/workspace-${agentId}/memory/${filename}`;
+    const resolved = path.resolve(filePath);
+
+    if (!resolved.startsWith(`/home/thefool/.openclaw/workspace-${agentId}/memory/`)) {
+      return res.status(403).json({ error: 'Forbidden: path outside journal directory' });
+    }
+
+    if (!fs.existsSync(resolved)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const stat = fs.statSync(resolved);
+    if (stat.size > 100 * 1024) {
+      return res.status(400).json({ error: 'File too large (max 100KB)' });
+    }
+
+    const content = fs.readFileSync(resolved, 'utf-8');
+    res.type('text/plain; charset=utf-8').send(content);
+  } catch (err) {
+    console.error(`/api/journal/:agentId/:filename error:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });

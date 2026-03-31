@@ -5,6 +5,7 @@ const state = {
   activeTab: 'agents',
   pollingTimer: null,
   lastUpdate: null,
+  initialLoaded: {},  // track first load per tab
 };
 
 const AGENT_NAMES_KR = {
@@ -31,6 +32,8 @@ const TAB_TITLES = {
   cron: '크론잡',
   activity: '활동 요약',
   library: '팀 라이브러리',
+  activeSessions: '활동 세션',
+  journal: '에이전트 일지',
 };
 
 // ─── Utils ───────────────────────────────────────────────
@@ -90,9 +93,11 @@ function statusBadgeClass(status) {
   if (!status) return 'badge-unknown';
   const s = status.toLowerCase();
   if (s === 'running' || s === 'active') return 'badge-running';
-  if (s === 'done' || s === 'completed' || s === 'success') return 'badge-done';
+  if (s === 'done' || s === 'completed' || s === 'success' || s === 'idle') return 'badge-done';
+  if (s === 'sleeping') return 'badge-idle';
+  if (s === 'offline') return 'badge-unknown';
   if (s === 'error' || s === 'failed' || s === 'fail') return 'badge-error';
-  if (s === 'idle' || s === 'waiting' || s === 'ok') return 'badge-' + s;
+  if (s === 'ok' || s === 'waiting') return 'badge-' + s;
   return 'badge-unknown';
 }
 
@@ -100,14 +105,16 @@ function statusLabel(status) {
   if (!status) return '알 수 없음';
   const map = {
     running: '실행 중',
-    active: '실행 중',
+    active: '작업중',
     done: '완료',
     completed: '완료',
     success: '정상',
     error: '오류',
     failed: '실패',
     fail: '실패',
-    idle: '대기',
+    idle: '대기중',
+    sleeping: '휴면',
+    offline: '오프라인',
     waiting: '대기',
     ok: '정상',
   };
@@ -118,6 +125,18 @@ function badge(status) {
   const cls = statusBadgeClass(status);
   const label = statusLabel(status);
   return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function statusLamp(status) {
+  if (!status) return '⚫';
+  const s = status.toLowerCase();
+  if (s === 'running' || s === 'active') return '🟢';
+  if (s === 'idle') return '🟡';
+  if (s === 'sleeping') return '🟠';
+  if (s === 'done' || s === 'completed' || s === 'success' || s === 'ok') return '🟡';
+  if (s === 'error' || s === 'failed' || s === 'fail') return '🔴';
+  if (s === 'offline') return '⚫';
+  return '⚫';
 }
 
 function showLoading(id, show) {
@@ -358,11 +377,6 @@ function formatFileSize(bytes) {
 }
 
 async function loadFilePreview(filePath, fileName) {
-  const preview = document.getElementById('file-preview');
-  if (!preview) return;
-
-  preview.innerHTML = `<div class="loading" style="padding:16px 0"><div class="spinner"></div></div>`;
-
   try {
     const agentId = detailPanelState.agentId;
     const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/file?path=${encodeURIComponent(filePath)}`);
@@ -376,25 +390,19 @@ async function loadFilePreview(filePath, fileName) {
       } catch {}
     }
 
-    preview.innerHTML = `
-      <div class="preview-header">
-        <span class="preview-filename">${esc(fileName)}</span>
-        <button class="preview-close" id="preview-close-btn">✕</button>
-      </div>
-      <pre class="code-block"><code>${esc(text)}</code></pre>
-    `;
-    document.getElementById('preview-close-btn')?.addEventListener('click', () => {
-      preview.innerHTML = '';
-    });
+    const isMd = fileName.endsWith('.md');
+    const rendered = isMd ? simpleMarkdown(text) : `<pre class="code-block"><code>${esc(text)}</code></pre>`;
+    openBigModal(fileName, `<div class="md-body">${rendered}</div>`);
   } catch (err) {
-    preview.innerHTML = `<div style="padding:16px;color:var(--error);font-size:12px">${esc(err.message)}</div>`;
+    openBigModal('오류', `<div style="color:var(--error);padding:24px">${esc(err.message)}</div>`);
   }
 }
 
 // ─── Tab: Agents ──────────────────────────────────────────
 
 async function loadAgents() {
-  showLoading('loading-agents', true);
+  const isFirst = !state.initialLoaded['agents'];
+  if (isFirst) showLoading('loading-agents', true);
   const grid = document.getElementById('agent-grid');
 
   try {
@@ -414,9 +422,12 @@ async function loadAgents() {
       return `
       <div class="card agent-card clickable-card" data-agent-id="${esc(agentId)}">
         <div class="agent-card-header">
-          <div>
-            <div class="agent-name">${esc(agentDisplayName(agentId))}</div>
-            <div class="agent-model">${esc(a.model || '-')}</div>
+          <div class="agent-header-left">
+            <span class="agent-lamp">${statusLamp(a.status)}</span>
+            <div>
+              <div class="agent-name">${esc(agentDisplayName(agentId))}</div>
+              <div class="agent-model">${esc(a.model || '-')}</div>
+            </div>
           </div>
           ${badge(a.status)}
         </div>
@@ -431,7 +442,7 @@ async function loadAgents() {
           </div>
         </div>
         <div class="agent-last-active">
-          🕐 마지막 활동: ${relativeTime(a.endedAt || a.startedAt || a.lastActivity)}
+          🕐 마지막 활동: ${a.lastActivityAgo || relativeTime(a.latestUpdatedAt || a.endedAt || a.startedAt || a.lastActivity)}
         </div>
       </div>
     `}).join('');
@@ -442,10 +453,11 @@ async function loadAgents() {
         openDetailPanel(card.dataset.agentId);
       });
     });
+    state.initialLoaded['agents'] = true;
   } catch (err) {
     grid.innerHTML = errorState(err);
   } finally {
-    showLoading('loading-agents', false);
+    if (isFirst) showLoading('loading-agents', false);
   }
 }
 
@@ -481,7 +493,8 @@ function cleanTimelineText(text) {
 }
 
 async function loadTimeline() {
-  showLoading('loading-timeline', true);
+  const isFirst = !state.initialLoaded['timeline'];
+  if (isFirst) showLoading('loading-timeline', true);
   const list = document.getElementById('timeline-list');
 
   try {
@@ -522,17 +535,19 @@ async function loadTimeline() {
         </div>
       `;
     }).join('');
+    state.initialLoaded['timeline'] = true;
   } catch (err) {
     list.innerHTML = errorState(err);
   } finally {
-    showLoading('loading-timeline', false);
+    if (isFirst) showLoading('loading-timeline', false);
   }
 }
 
 // ─── Tab: Cron ────────────────────────────────────────────
 
 async function loadCron() {
-  showLoading('loading-cron', true);
+  const isFirst = !state.initialLoaded['cron'];
+  if (isFirst) showLoading('loading-cron', true);
   const tbody = document.getElementById('cron-tbody');
 
   try {
@@ -557,17 +572,19 @@ async function loadCron() {
         <td class="td-muted">${esc(job.agentId || job.target || job.agent || '-')}</td>
       </tr>
     `).join('');
+    state.initialLoaded['cron'] = true;
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--error);padding:24px">${err.message}</td></tr>`;
   } finally {
-    showLoading('loading-cron', false);
+    if (isFirst) showLoading('loading-cron', false);
   }
 }
 
 // ─── Tab: Activity ────────────────────────────────────────
 
 async function loadActivity() {
-  showLoading('loading-activity', true);
+  const isFirst = !state.initialLoaded['activity'];
+  if (isFirst) showLoading('loading-activity', true);
   const grid = document.getElementById('activity-grid');
 
   try {
@@ -639,10 +656,11 @@ async function loadActivity() {
         </div>
       </div>
     `).join('');
+    state.initialLoaded['activity'] = true;
   } catch (err) {
     grid.innerHTML = errorState(err);
   } finally {
-    showLoading('loading-activity', false);
+    if (isFirst) showLoading('loading-activity', false);
   }
 }
 
@@ -697,7 +715,8 @@ function simpleMarkdown(text) {
 }
 
 async function loadLibrary() {
-  showLoading('loading-library', true);
+  const isFirst = !state.initialLoaded['library'];
+  if (isFirst) showLoading('loading-library', true);
   const container = document.getElementById('library-container');
 
   try {
@@ -731,19 +750,15 @@ async function loadLibrary() {
     container.querySelectorAll('.library-card').forEach(card => {
       card.addEventListener('click', () => loadLibraryFile(card.dataset.name));
     });
+    state.initialLoaded['library'] = true;
   } catch (err) {
     container.innerHTML = errorState(err);
   } finally {
-    showLoading('loading-library', false);
+    if (isFirst) showLoading('loading-library', false);
   }
 }
 
 async function loadLibraryFile(name) {
-  const preview = document.getElementById('library-preview');
-  if (!preview) return;
-
-  preview.innerHTML = `<div class="loading" style="padding:24px 0"><div class="spinner"></div></div>`;
-
   try {
     const res = await fetch(`/api/library/file?name=${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -751,22 +766,179 @@ async function loadLibraryFile(name) {
 
     const isMd = name.endsWith('.md');
     const rendered = isMd ? simpleMarkdown(text) : `<pre class="code-block"><code>${esc(text)}</code></pre>`;
+    openBigModal(name, `<div class="md-body">${rendered}</div>`);
+  } catch (err) {
+    openBigModal('오류', `<div style="color:var(--error);padding:24px">${esc(err.message)}</div>`);
+  }
+}
 
-    preview.innerHTML = `
-      <div class="card" style="margin-top:16px">
-        <div class="library-preview-header">
-          <span class="library-preview-name">${esc(name)}</span>
-          <button class="preview-close" id="library-preview-close">✕</button>
-        </div>
-        <div class="library-preview-body ${isMd ? 'md-body' : ''}">${rendered}</div>
+// ─── Big Modal ────────────────────────────────────────────
+
+function openBigModal(title, html) {
+  // Remove existing modal
+  const existing = document.getElementById('big-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'big-modal';
+  overlay.innerHTML = `
+    <div class="big-modal-overlay"></div>
+    <div class="big-modal-container">
+      <div class="big-modal-header">
+        <span class="big-modal-title">${esc(title)}</span>
+        <button class="big-modal-close" id="big-modal-close-btn">✕</button>
+      </div>
+      <div class="big-modal-body">${html}</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Event listeners
+  document.getElementById('big-modal-close-btn').addEventListener('click', closeBigModal);
+  overlay.querySelector('.big-modal-overlay').addEventListener('click', closeBigModal);
+  document.addEventListener('keydown', function escHandler(e) {
+    if (e.key === 'Escape') {
+      closeBigModal();
+      document.removeEventListener('keydown', escHandler);
+    }
+  });
+}
+
+function closeBigModal() {
+  const modal = document.getElementById('big-modal');
+  if (modal) modal.remove();
+}
+
+// ─── Tab: Active Sessions ─────────────────────────────────
+
+async function loadActiveSessions() {
+  const isFirst = !state.initialLoaded['activeSessions'];
+  if (isFirst) showLoading('loading-active-sessions', true);
+  const container = document.getElementById('active-sessions-container');
+
+  try {
+    const data = await apiFetch('/api/active-sessions');
+    state.lastUpdate = new Date();
+    updateLastUpdate();
+
+    const sessions = Array.isArray(data) ? data : (data.sessions || []);
+
+    if (sessions.length === 0) {
+      container.innerHTML = emptyState('🔄', '현재 실행 중인 세션 없음');
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="active-sessions-list">
+        ${sessions.map(s => `
+          <div class="card active-session-card">
+            <div class="active-session-header">
+              <span class="active-session-lamp">🟢</span>
+              <span class="active-session-agent">${esc(agentDisplayName(s.agentId || 'unknown'))}</span>
+              ${badge(s.status || 'running')}
+            </div>
+            <div class="active-session-meta">
+              <div class="active-session-meta-item">
+                <span class="meta-label">모델</span>
+                <span class="meta-value">${esc(s.model || '-')}</span>
+              </div>
+              <div class="active-session-meta-item">
+                <span class="meta-label">토큰</span>
+                <span class="meta-value">${formatTokens(s.totalTokens)}</span>
+              </div>
+              <div class="active-session-meta-item">
+                <span class="meta-label">세션</span>
+                <span class="meta-value" style="font-size:10px;word-break:break-all">${esc(s.sessionId || '-')}</span>
+              </div>
+              <div class="active-session-meta-item">
+                <span class="meta-label">경과</span>
+                <span class="meta-value">${s.runtimeMs ? Math.floor(s.runtimeMs / 1000) + 's' : '-'}</span>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    state.initialLoaded['activeSessions'] = true;
+  } catch (err) {
+    container.innerHTML = errorState(err);
+  } finally {
+    if (isFirst) showLoading('loading-active-sessions', false);
+  }
+}
+
+// ─── Tab: Journal ─────────────────────────────────────────
+
+async function loadJournal() {
+  const isFirst = !state.initialLoaded['journal'];
+  if (isFirst) showLoading('loading-journal', true);
+  const container = document.getElementById('journal-container');
+
+  try {
+    const data = await apiFetch('/api/journal');
+    state.lastUpdate = new Date();
+    updateLastUpdate();
+
+    const entries = Array.isArray(data) ? data : (data.entries || []);
+
+    if (entries.length === 0) {
+      container.innerHTML = emptyState('📝', '일지 파일 없음');
+      return;
+    }
+
+    // Group by date
+    const byDate = {};
+    for (const entry of entries) {
+      if (!byDate[entry.date]) byDate[entry.date] = [];
+      byDate[entry.date].push(entry);
+    }
+
+    const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+
+    container.innerHTML = `
+      <div class="journal-list">
+        ${dates.map(date => `
+          <div class="journal-date-group">
+            <div class="journal-date-label">${esc(date)}</div>
+            <div class="journal-cards">
+              ${byDate[date].map(entry => `
+                <div class="card journal-card clickable-card"
+                     data-agent-id="${esc(entry.agentId)}"
+                     data-filename="${esc(entry.filename)}">
+                  <div class="journal-card-agent">${esc(agentDisplayName(entry.agentId))}</div>
+                  <div class="journal-card-file">${esc(entry.filename)}</div>
+                  <div class="journal-card-meta">${formatFileSize(entry.size)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     `;
 
-    document.getElementById('library-preview-close')?.addEventListener('click', () => {
-      preview.innerHTML = '';
+    // Attach click handlers
+    container.querySelectorAll('.journal-card').forEach(card => {
+      card.addEventListener('click', () => openJournalFile(card.dataset.agentId, card.dataset.filename));
     });
+    state.initialLoaded['journal'] = true;
   } catch (err) {
-    preview.innerHTML = `<div style="padding:16px;color:var(--error);font-size:12px">${esc(err.message)}</div>`;
+    container.innerHTML = errorState(err);
+  } finally {
+    if (isFirst) showLoading('loading-journal', false);
+  }
+}
+
+async function openJournalFile(agentId, filename) {
+  try {
+    const res = await fetch(`/api/journal/${encodeURIComponent(agentId)}/${encodeURIComponent(filename)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const isMd = filename.endsWith('.md');
+    const rendered = isMd ? simpleMarkdown(text) : `<pre class="code-block"><code>${esc(text)}</code></pre>`;
+    const title = `${agentDisplayName(agentId)} — ${filename}`;
+    openBigModal(title, `<div class="md-body">${rendered}</div>`);
+  } catch (err) {
+    openBigModal('오류', `<div style="color:var(--error);padding:24px">${esc(err.message)}</div>`);
   }
 }
 
@@ -797,6 +969,8 @@ const TAB_LOADERS = {
   cron: loadCron,
   activity: loadActivity,
   library: loadLibrary,
+  activeSessions: loadActiveSessions,
+  journal: loadJournal,
 };
 
 function switchTab(tabId) {
@@ -829,7 +1003,7 @@ function switchTab(tabId) {
   if (loader) {
     loader();
     // Poll every 10 seconds
-    state.pollingTimer = setInterval(loader, 10000);
+    state.pollingTimer = setInterval(loader, 30000);
   }
 }
 
