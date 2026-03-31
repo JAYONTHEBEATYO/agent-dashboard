@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>더풀 에이전트 대시보드</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">🏗️</span>
+        <span class="brand-text">더풀 대시보드</span>
+      </div>
+      <ul class="sidebar-menu">
+        <li class="menu-item active" data-tab="agents">
+          <span class="menu-icon">🤖</span>
+          <span class="menu-label">에이전트 현황</span>
+        </li>
+        <li class="menu-item" data-tab="timeline">
+          <span class="menu-icon">💬</span>
+          <span class="menu-label">대화 타임라인</span>
+        </li>
+        <li class="menu-item" data-tab="cron">
+          <span class="menu-icon">⏰</span>
+          <span class="menu-label">크론잡</span>
+        </li>
+        <li class="menu-item" data-tab="activity">
+          <span class="menu-icon">📊</span>
+          <span class="menu-label">활동 요약</span>
+        </li>
+        <li class="menu-item" data-tab="library">
+          <span class="menu-icon">📚</span>
+          <span class="menu-label">팀 라이브러리</span>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main">
+      <!-- Header -->
+      <header class="header">
+        <h1 class="header-title" id="header-title">에이전트 현황</h1>
+        <div class="header-meta">
+          <span class="current-time" id="current-time"></span>
+          <span class="last-update" id="last-update">업데이트 중...</span>
+        </div>
+      </header>
+
+      <!-- Content Area -->
+      <div class="content" id="content">
+        <!-- Agents Tab -->
+        <div class="tab-panel active" id="tab-agents">
+          <div class="loading" id="loading-agents">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div class="agent-grid" id="agent-grid"></div>
+        </div>
+
+        <!-- Timeline Tab -->
+        <div class="tab-panel" id="tab-timeline">
+          <div class="loading" id="loading-timeline">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div class="timeline-list" id="timeline-list"></div>
+        </div>
+
+        <!-- Cron Tab -->
+        <div class="tab-panel" id="tab-cron">
+          <div class="loading" id="loading-cron">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div class="table-wrapper" id="cron-table-wrapper">
+            <table class="data-table" id="cron-table">
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th>스케줄</th>
+                  <th>다음 실행</th>
+                  <th>마지막 실행</th>
+                  <th>상태</th>
+                  <th>담당 에이전트</th>
+                </tr>
+              </thead>
+              <tbody id="cron-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Activity Tab -->
+        <div class="tab-panel" id="tab-activity">
+          <div class="loading" id="loading-activity">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div class="agent-grid" id="activity-grid"></div>
+        </div>
+
+        <!-- Library Tab -->
+        <div class="tab-panel" id="tab-library">
+          <div class="loading" id="loading-library">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div id="library-container"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+
+  <!-- Detail Panel Overlay -->
+  <div id="detail-panel" class="detail-panel hidden">
+    <div class="detail-panel-header" id="detail-panel-header">
+      <!-- populated by JS -->
+    </div>
+    <div class="detail-tabs">
+      <button class="detail-tab-btn active" data-tab="workspace">워크스페이스</button>
+      <button class="detail-tab-btn" data-tab="settings">설정</button>
+      <button class="detail-tab-btn" data-tab="sessions">세션</button>
+      <button class="detail-tab-btn" data-tab="recent">최근대화</button>
+    </div>
+    <div class="detail-panel-body">
+      <div class="detail-panel-content" id="detail-panel-content">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+</body>
+</html>
