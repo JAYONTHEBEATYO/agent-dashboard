@@ -220,7 +220,20 @@ app.get('/api/timeline', async (req, res) => {
               }
               // Strip leading timestamp
               text = text.replace(/^\[.*?GMT[+-]\d+\]\s*/i, '');
-              return text.slice(0, 300);
+              return text.slice(0, 2000);
+            })(),
+            fullText: (() => {
+              let text = '';
+              if (Array.isArray(obj.message.content)) {
+                text = obj.message.content
+                  .filter(c => c.type === 'text' && c.text)
+                  .map(c => c.text)
+                  .join('\n');
+              } else if (typeof obj.message.content === 'string') {
+                text = obj.message.content;
+              }
+              text = text.replace(/^\[.*?GMT[+-]\d+\]\s*/i, '');
+              return text;
             })()
           }));
       }));

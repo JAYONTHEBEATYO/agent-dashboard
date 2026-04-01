@@ -509,32 +509,47 @@ async function loadTimeline() {
       return;
     }
 
-    list.innerHTML = items.map(item => {
+    list.innerHTML = items.map((item, idx) => {
       // Extract sender from provenance.sourceSessionKey
       const senderRaw = extractAgentName(item.provenance?.sourceSessionKey);
       const sender = agentDisplayName(senderRaw);
       // Receiver is the agent that received the message
       const receiver = item.agentId ? agentDisplayName(item.agentId) : '';
-      
+
       // Extract readable text from content
-      const rawText = item.textPreview || extractTextContent(item.content);
+      const rawText = item.fullText || item.textPreview || extractTextContent(item.content);
       const preview = truncate(cleanTimelineText(rawText), 200);
       const ts = item.timestamp || item.createdAt || item.time;
+      const tsFull = ts ? new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '';
 
       return `
-        <div class="card timeline-item">
+        <div class="card timeline-item clickable" data-full-text="${esc(rawText)}" data-sender="${esc(sender)}" data-receiver="${esc(receiver)}" data-time="${esc(tsFull)}">
           <div class="timeline-header">
             <span class="timeline-time">${formatKST(ts)}</span>
             <div class="timeline-route">
               <span class="timeline-sender">${esc(sender)}</span>
               ${receiver ? `<span class="timeline-arrow">→</span><span class="timeline-receiver">${esc(receiver)}</span>` : ''}
             </div>
+            <span class="timeline-view-hint">📖</span>
             <span style="margin-left:auto">${badge(item.status || 'done')}</span>
           </div>
           <div class="timeline-preview">${esc(preview)}</div>
         </div>
       `;
     }).join('');
+
+    // Attach click handlers for full message modal
+    list.querySelectorAll('.timeline-item').forEach(card => {
+      card.addEventListener('click', () => {
+        const fullText = card.dataset.fullText || '';
+        const sender = card.dataset.sender || '';
+        const receiver = card.dataset.receiver || '';
+        const time = card.dataset.time || '';
+        const title = receiver ? `${sender} → ${receiver} | ${time}` : `${sender} | ${time}`;
+        const rendered = simpleMarkdown(fullText) || `<pre style="white-space:pre-wrap">${esc(fullText)}</pre>`;
+        openBigModal(title, `<div class="md-body">${rendered}</div>`);
+      });
+    });
     state.initialLoaded['timeline'] = true;
   } catch (err) {
     list.innerHTML = errorState(err);
