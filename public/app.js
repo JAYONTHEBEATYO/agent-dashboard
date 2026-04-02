@@ -34,6 +34,7 @@ const TAB_TITLES = {
   library: '팀 라이브러리',
   activeSessions: '활동 세션',
   journal: '에이전트 일지',
+  tetris: '테트리스',
 };
 
 // ─── Utils ───────────────────────────────────────────────
@@ -824,6 +825,11 @@ function closeBigModal() {
   if (modal) modal.remove();
 }
 
+function loadTetris() {
+  state.lastUpdate = new Date();
+  updateLastUpdate();
+}
+
 // ─── Tab: Active Sessions ─────────────────────────────────
 
 async function loadActiveSessions() {
@@ -986,6 +992,7 @@ const TAB_LOADERS = {
   library: loadLibrary,
   activeSessions: loadActiveSessions,
   journal: loadJournal,
+  tetris: loadTetris,
 };
 
 function switchTab(tabId) {

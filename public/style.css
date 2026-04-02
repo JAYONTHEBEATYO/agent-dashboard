@@ -966,6 +966,21 @@ body {
   overflow-y: auto;
 }
 
+/* ─── Tetris ─── */
+.tetris-frame-wrap {
+  width: 100%;
+  min-height: calc(100vh - 140px);
+  display: flex;
+}
+
+.tetris-frame {
+  width: 100%;
+  min-height: calc(100vh - 140px);
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
 /* ─── Active Sessions ─── */
 .active-sessions-list {
   display: flex;
