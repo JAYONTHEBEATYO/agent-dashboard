@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>던전브로 — DungeonBro</title>
+<link rel="stylesheet" href="dungeonbro.css"/>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    <div id="hud-top">
+      <div class="hud-block">
+        <div class="hud-label">HP</div>
+        <div class="hp-bar-wrap">
+          <div class="hp-bar" id="hp-bar"></div>
+          <div class="hp-text" id="hp-text">100/100</div>
+        </div>
+      </div>
+      <div class="hud-block hud-center">
+        <span class="stage-name" id="stage-name">폐광 던전</span>
+        <span class="sep">|</span>
+        <span class="score-label">SCORE</span>
+        <span class="score-value" id="score-value">0</span>
+      </div>
+      <div class="hud-block hud-right">
+        <div class="skill-slot" id="skill1-slot">
+          <div class="skill-icon skill1-icon">🔥</div>
+          <div class="skill-cooldown" id="skill1-cd"></div>
+          <div class="skill-key">X</div>
+        </div>
+        <div class="skill-slot" id="skill2-slot">
+          <div class="skill-icon skill2-icon">🌀</div>
+          <div class="skill-cooldown" id="skill2-cd"></div>
+          <div class="skill-key">C</div>
+        </div>
+      </div>
+    </div>
+    <div class="combo-display" id="combo-display"></div>
+  </div>
+</div>
+<div id="screen-title" class="overlay-screen active">
+  <div class="screen-content title-screen">
+    <div class="game-logo">던전브로</div>
+    <div class="game-subtitle">Dungeon Fighter Browser Edition</div>
+    <div class="press-start" id="press-start-text">Press <kbd>ENTER</kbd> or <kbd>Z</kbd> to Start</div>
+    <div class="title-controls">
+      <div class="ctrl-row"><kbd>←→</kbd> 이동 &nbsp; <kbd>W/↑</kbd> 점프 &nbsp; <kbd>Z</kbd> 공격</div>
+      <div class="ctrl-row"><kbd>X</kbd> 스킬1(火焰斬) &nbsp; <kbd>C</kbd> 스킬2(旋風腳) &nbsp; <kbd>P</kbd> 일시정지</div>
+    </div>
+  </div>
+</div>
+<div id="screen-gameover" class="overlay-screen"><div class="screen-content"><div class="result-title gameover-title">GAME OVER</div><div class="result-score">SCORE: <span id="go-score">0</span></div><div class="press-start">Press <kbd>R</kbd> to Retry</div></div></div>
+<div id="screen-clear" class="overlay-screen"><div class="screen-content"><div class="result-title clear-title">STAGE CLEAR!</div><div class="result-score">SCORE: <span id="sc-score">0</span></div><div class="press-start">Press <kbd>R</kbd> to Play Again</div></div></div>
+<div id="screen-pause" class="overlay-screen"><div class="screen-content"><div class="result-title pause-title">PAUSED</div><div class="press-start">Press <kbd>P</kbd> to Resume</div></div></div>
+<script src="dungeonbro.js"></script>
+</body>
+</html>

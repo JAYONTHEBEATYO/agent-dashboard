@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>던전브로 V2 - Action RPG</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #game-container { box-shadow: 0 0 20px rgba(255, 100, 0, 0.5); border: 2px solid #333; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; font-weight: bold; color: #f97316; text-shadow: 2px 2px 0 #000; z-index: 10; pointer-events: none; }
+    </style>
+    <!-- Phaser 3 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+</head>
+<body>
+    <div id="loading">Initializing Engine...</div>
+    <div id="game-container"></div>
+    <script src="dungeonbro_v2.js"></script>
+</body>
+</html>
