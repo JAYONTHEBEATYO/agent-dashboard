@@ -41,6 +41,8 @@
   --error-bg: #5F2D2D;
   --idle: #D4A843;
   --idle-bg: #4A3D2D;
+  --badge-running-text: #6BCB77;
+  --badge-idle-text: #D4A843;
 }
 
 html {
@@ -354,6 +356,47 @@ body {
   padding-top: 10px;
   margin-top: 2px;
 }
+
+.agent-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.subagent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.agent-task-banner {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+.agent-task-active {
+  background: rgba(107, 203, 119, 0.15);
+  color: var(--running);
+  border-left: 3px solid var(--running);
+}
+
+.agent-task-idle {
+  background: rgba(212, 168, 67, 0.12);
+  color: var(--badge-idle-text);
+  border-left: 3px solid var(--badge-idle-text);
+}
+
+/* ─── Status Badge ─── */
 
 /* ─── Status Badge ─── */
 .badge {
@@ -964,6 +1007,202 @@ body {
   padding: 14px;
   max-height: 500px;
   overflow-y: auto;
+}
+
+/* ─── Detail Panel Subagent List ─── */
+.subagent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.subagent-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.subagent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.subagent-lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.subagent-model {
+  font-size: 13px;
+  font-family: monospace;
+  color: var(--accent);
+  flex: 1;
+}
+.subagent-task-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(107, 203, 119, 0.15);
+  color: var(--running);
+}
+.subagent-task-badge.subagent-idle {
+  background: rgba(212, 168, 67, 0.12);
+  color: var(--badge-idle-text);
+}
+.subagent-card-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-left: 20px;
+}
+
+/* ─── Subagent Tree ─── */
+.subagent-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.subagent-agent {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 12px;
+  border: 1px solid var(--border);
+}
+.subagent-agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.subagent-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.subagent-direct, .subagent-children {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.subagent-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.subagent-session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.subagent-sub-item {
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+}
+.subagent-session-model {
+  font-family: monospace;
+  color: var(--accent);
+  flex: 1;
+}
+.subagent-session-age {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.subagent-session-tokens {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: monospace;
+}
+.subagent-more {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 8px;
+}
+
+/* ─── Library Tree ─── */
+.library-layout {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 200px);
+}
+.library-tree {
+  width: 240px;
+  min-width: 200px;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.tree-list, .tree-children {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.tree-list { margin-left: 0; }
+.tree-children { margin-left: 16px; }
+.tree-folder, .tree-file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: background 0.1s;
+}
+.tree-folder:hover, .tree-file:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.tree-file.selected {
+  background: var(--accent-dim);
+  color: var(--accent-text);
+}
+.tree-toggle {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 12px;
+  display: inline-block;
+}
+.library-main {
+  flex: 1;
+  overflow-y: auto;
+  padding-left: 4px;
+}
+.library-breadcrumb {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.library-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 12px 0 8px;
+}
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.library-folder-card .library-card-icon {
+  font-size: 28px;
 }
 
 /* ─── Tetris ─── */

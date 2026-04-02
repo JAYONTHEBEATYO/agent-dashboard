@@ -39,6 +39,10 @@
           <span class="menu-icon">🔄</span>
           <span class="menu-label">활동 세션</span>
         </li>
+        <li class="menu-item" data-tab="subagents">
+          <span class="menu-icon">🌲</span>
+          <span class="menu-label">서브에이전트</span>
+        </li>
         <li class="menu-item" data-tab="journal">
           <span class="menu-icon">📝</span>
           <span class="menu-label">에이전트 일지</span>
@@ -131,6 +135,15 @@
           <div id="active-sessions-container"></div>
         </div>
 
+        <!-- Subagents Tab -->
+        <div class="tab-panel" id="tab-subagents">
+          <div class="loading" id="loading-subagents">
+            <div class="spinner"></div>
+            <span>불러오는 중...</span>
+          </div>
+          <div id="subagents-container"></div>
+        </div>
+
         <!-- Journal Tab -->
         <div class="tab-panel" id="tab-journal">
           <div class="loading" id="loading-journal">
@@ -162,6 +175,7 @@
       <button class="detail-tab-btn" data-tab="settings">설정</button>
       <button class="detail-tab-btn" data-tab="sessions">세션</button>
       <button class="detail-tab-btn" data-tab="recent">최근대화</button>
+      <button class="detail-tab-btn" data-tab="subagents">서브에이전트</button>
     </div>
     <div class="detail-panel-body">
       <div class="detail-panel-content" id="detail-panel-content">

@@ -33,6 +33,7 @@ const TAB_TITLES = {
   activity: '활동 요약',
   library: '팀 라이브러리',
   activeSessions: '활동 세션',
+  subagents: '서브에이전트',
   journal: '에이전트 일지',
   tetris: '테트리스',
 };
@@ -363,6 +364,43 @@ function renderDetailPanelTab(tab, data) {
         `).join('')}
       </div>
     `;
+  } else if (tab === 'subagents') {
+    // Fetch subagents data
+    try {
+      const subData = await apiFetch(`/api/agents/${encodeURIComponent(detailPanelState.agentId)}/subagents`);
+      const subs = subData.subagents || [];
+      if (subs.length === 0) {
+        content.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🌲</div><div class="empty-state-text">서브에이전트가 없습니다</div></div>';
+        return;
+      }
+      content.innerHTML = `
+        <div class="subagent-list">
+          ${subs.map(s => {
+            const isActive = s.isActive;
+            const task = s.task || (isActive ? '작업중' : '대기중');
+            const model = s.modelOverride || s.model || '?';
+            const age = s.ageMs ? formatDuration(s.ageMs) : '-';
+            const tokens = s.totalTokens ? formatTokens(s.totalTokens) : '-';
+            const statusColor = isActive ? 'var(--running)' : 'var(--text-muted)';
+            return `
+            <div class="subagent-card">
+              <div class="subagent-card-header">
+                <span class="subagent-lamp" style="background:${statusColor}"></span>
+                <span class="subagent-model">${esc(model)}</span>
+                ${isActive ? `<span class="subagent-task-badge">🔨 ${esc(task)}</span>` : `<span class="subagent-task-badge subagent-idle">💤 ${esc(task)}</span>`}
+              </div>
+              <div class="subagent-card-meta">
+                <span>⏱ ${age}</span>
+                <span>💬 ${tokens}</span>
+                <span>🆔 ${esc(s.sessionId ? s.sessionId.slice(0,8) + '...' : '-')}</span>
+              </div>
+            </div>
+          `}).join('')}
+        </div>
+      `;
+    } catch (err) {
+      content.innerHTML = errorState(err);
+    }
   }
 }
 
@@ -420,6 +458,12 @@ async function loadAgents() {
 
     grid.innerHTML = agents.map(a => {
       const agentId = a.agentId || a.key || a.name || '알 수 없음';
+      const subagentCount = a.subagentCount || 0;
+      const sessionCount = a.sessionCount || 0;
+      const isActive = a.status === 'active' || a.status === 'running';
+      const isIdle = a.status === 'idle';
+      const statusIcon = isActive ? '🟢' : isIdle ? '🟡' : a.status === 'sleeping' ? '🟠' : '⚫';
+      const taskLabel = isActive ? '🔨 ' + (a.statusLabel || '작업중') : isIdle ? '💤 ' + (a.statusLabel || '대기중') : a.statusLabel || '';
       return `
       <div class="card agent-card clickable-card" data-agent-id="${esc(agentId)}">
         <div class="agent-card-header">
@@ -430,8 +474,12 @@ async function loadAgents() {
               <div class="agent-model">${esc(a.model || '-')}</div>
             </div>
           </div>
-          ${badge(a.status)}
+          <div class="agent-header-right">
+            ${badge(a.status)}
+            ${subagentCount > 0 ? `<span class="subagent-badge" title="서브에이전트 ${subagentCount}개">🌲 ${subagentCount}</span>` : ''}
+          </div>
         </div>
+        ${isActive || isIdle ? `<div class="agent-task-banner agent-task-${a.status}">${taskLabel}</div>` : ''}
         <div class="agent-stats">
           <div class="stat-item">
             <span class="stat-label">토큰</span>
@@ -440,6 +488,10 @@ async function loadAgents() {
           <div class="stat-item">
             <span class="stat-label">비용</span>
             <span class="stat-value">${formatCost(a.estimatedCostUsd)}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">세션</span>
+            <span class="stat-value">${sessionCount}</span>
           </div>
         </div>
         <div class="agent-last-active">
@@ -730,48 +782,305 @@ function simpleMarkdown(text) {
   return html;
 }
 
+async function loadSubagents() {
+  const isFirst = !state.initialLoaded['subagents'];
+  if (isFirst) showLoading('loading-subagents', true);
+  const container = document.getElementById('subagents-container');
+
+  try {
+    const data = await apiFetch('/api/active-sessions');
+    const allSessions = data.sessions || [];
+    state.lastUpdate = new Date();
+    updateLastUpdate();
+
+    // Group by agentId
+    const agentMap = {};
+    for (const s of allSessions) {
+      const aid = s.agentId || 'unknown';
+      if (!agentMap[aid]) agentMap[aid] = [];
+      agentMap[aid].push(s);
+    }
+
+    // Sort agents by name
+    const sortedAgents = Object.keys(agentMap).sort();
+
+    if (sortedAgents.length === 0) {
+      container.innerHTML = emptyState('🌲', '서브에이전트가 없습니다');
+      return;
+    }
+
+    let html = '<div class="subagent-tree">';
+    for (const agentId of sortedAgents) {
+      const sessions = agentMap[agentId];
+      const hasSubagents = sessions.some(s => s.key && s.key.includes(':subagent:'));
+      if (!hasSubagents) {
+        // skip agents without subagent sessions unless it's the only session
+      }
+      const icon = getAgentIcon(agentId);
+      html += `<div class="subagent-agent">
+        <div class="subagent-agent-header">
+          <span class="subagent-status-dot ${getStatusClass(sessions[0].status)}"></span>
+          ${icon} <strong>${esc(agentId)}</strong>
+          <span class="subagent-count">${sessions.length}개 세션</span>
+        </div>`;
+
+      // Show direct sessions vs subagents
+      const direct = sessions.filter(s => !s.key || !s.key.includes(':subagent:'));
+      const subs = sessions.filter(s => s.key && s.key.includes(':subagent:'));
+
+      if (direct.length > 0) {
+        html += `<div class="subagent-direct">📱 메인 세션: ${direct.length}개`;
+        html += `<div class="subagent-session-list">`;
+        for (const s of direct.slice(0,3)) {
+          html += `<div class="subagent-session-item">
+            <span class="subagent-status-dot ${getStatusClass(s.status)}"></span>
+            <span class="subagent-session-model">${esc(s.model || s.modelOverride || '?')}</span>
+            <span class="subagent-session-age">${relativeTime(s.updatedAt)}</span>
+          </div>`;
+        }
+        if (direct.length > 3) html += `<div class="subagent-more">+${direct.length - 3}개 더</div>`;
+        html += `</div></div>`;
+      }
+
+      if (subs.length > 0) {
+        html += `<div class="subagent-children">🌲 서브에이전트: ${subs.length}개`;
+        html += `<div class="subagent-session-list">`;
+        for (const s of subs) {
+          const model = s.model || s.modelOverride || '?';
+          const status = s.status || (s.totalTokensFresh ? 'idle' : 'done');
+          const age = s.ageMs ? formatDuration(s.ageMs) : '-';
+          const tokens = s.totalTokens ? formatTokens(s.totalTokens) : '-';
+          html += `<div class="subagent-session-item subagent-sub-item">
+            <span class="subagent-status-dot ${getStatusClass(status)}"></span>
+            <span class="subagent-session-model">${esc(model)}</span>
+            <span class="subagent-session-age">${age}</span>
+            <span class="subagent-session-tokens">${tokens}</span>
+          </div>`;
+        }
+        html += `</div></div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+    container.innerHTML = html;
+    state.initialLoaded['subagents'] = true;
+  } catch (err) {
+    container.innerHTML = errorState(err);
+  } finally {
+    if (isFirst) showLoading('loading-subagents', false);
+  }
+}
+
+function getAgentIcon(agentId) {
+  if (agentId.includes('yun-coding-teamjang')) return '🏗️';
+  if (agentId.includes('yun-siljang')) return '📋';
+  if (agentId.includes('yun-cogada')) return '🤖';
+  if (agentId.includes('yun-park')) return '📌';
+  if (agentId.includes('yun-bis')) return '📎';
+  return '🧩';
+}
+
+function getStatusClass(status) {
+  if (status === 'running' || status === 'active') return 'status-running';
+  if (status === 'error') return 'status-error';
+  if (status === 'done' || status === 'idle') return 'status-done';
+  return 'status-idle';
+}
+
+function formatDuration(ms) {
+  if (!ms) return '-';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}분`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 ${m % 60}분`;
+  return `${Math.floor(h / 24)}일 ${h % 24}시간`;
+}
+
 async function loadLibrary() {
   const isFirst = !state.initialLoaded['library'];
   if (isFirst) showLoading('loading-library', true);
   const container = document.getElementById('library-container');
 
   try {
-    const data = await apiFetch('/api/library');
+    // Fetch both flat list and tree
+    const [data, treeData] = await Promise.all([
+      apiFetch('/api/library'),
+      apiFetch('/api/library/tree')
+    ]);
     state.lastUpdate = new Date();
     updateLastUpdate();
 
     const files = Array.isArray(data) ? data : (data.files || []);
+    const folders = Array.isArray(data) ? [] : (data.folders || []);
+    const tree = treeData.tree || [];
 
-    if (files.length === 0) {
+    if (files.length === 0 && folders.length === 0 && tree.length === 0) {
       container.innerHTML = emptyState('📚', '파일이 없습니다');
       return;
     }
 
+    // Render folder tree + current folder contents
     container.innerHTML = `
-      <div class="library-grid">
-        ${files.map(f => `
-          <div class="card library-card clickable-card" data-name="${esc(f.name)}">
-            <div class="library-card-icon">${fileIcon(f.extension)}</div>
-            <div class="library-card-info">
-              <div class="library-card-name">${esc(f.name)}</div>
-              <div class="library-card-meta">${formatFileSize(f.size)} · ${relativeTime(f.modified)}</div>
-            </div>
-          </div>
-        `).join('')}
+      <div class="library-layout">
+        <div class="library-tree" id="library-tree"></div>
+        <div class="library-main">
+          <div class="library-breadcrumb" id="library-breadcrumb"></div>
+          <div class="library-entries" id="library-entries"></div>
+        </div>
       </div>
       <div class="library-preview" id="library-preview"></div>
     `;
 
-    // Attach click handlers
-    container.querySelectorAll('.library-card').forEach(card => {
-      card.addEventListener('click', () => loadLibraryFile(card.dataset.name));
+    // Render tree recursively
+    function renderTree(nodes, container, basePath = '') {
+      const ul = document.createElement('ul');
+      ul.className = 'tree-list';
+      for (const node of nodes) {
+        const li = document.createElement('li');
+        if (node.type === 'folder') {
+          const folderPath = node.path;
+          li.innerHTML = `<span class="tree-folder" data-path="${esc(folderPath)}"><span class="tree-toggle">▶</span> 📁 ${esc(node.name)}</span>`;
+          const childUl = document.createElement('ul');
+          childUl.className = 'tree-children';
+          childUl.style.display = 'none';
+          for (const child of (node.children || [])) {
+            const childLi = document.createElement('li');
+            if (child.type === 'folder') {
+              childLi.innerHTML = `<span class="tree-folder" data-path="${esc(child.path)}"><span class="tree-toggle">▶</span> 📁 ${esc(child.name)}</span>`;
+              const childChildUl = document.createElement('ul');
+              childChildUl.className = 'tree-children';
+              childChildUl.style.display = 'none';
+              for (const grandchild of (child.children || [])) {
+                const grandchildLi = document.createElement('li');
+                if (grandchild.type === 'folder') {
+                  grandchildLi.innerHTML = `<span class="tree-folder" data-path="${esc(grandchild.path)}"><span class="tree-toggle">▶</span> 📁 ${esc(grandchild.name)}</span>`;
+                } else {
+                  grandchildLi.innerHTML = `<span class="tree-file" data-path="${esc(grandchild.path)}">${fileIcon(grandchild.extension)} ${esc(grandchild.name)}</span>`;
+                }
+                childChildUl.appendChild(grandchildLi);
+              }
+              childLi.appendChild(childChildUl);
+            } else {
+              childLi.innerHTML = `<span class="tree-file" data-path="${esc(child.path)}">${fileIcon(child.extension)} ${esc(child.name)}</span>`;
+            }
+            childUl.appendChild(childLi);
+          }
+          li.appendChild(childUl);
+        } else {
+          li.innerHTML = `<span class="tree-file" data-path="${esc(node.path)}">${fileIcon(node.extension)} ${esc(node.name)}</span>`;
+        }
+        ul.appendChild(li);
+      }
+      container.appendChild(ul);
+    }
+
+    const treeEl = document.getElementById('library-tree');
+    renderTree(tree, treeEl);
+
+    // Tree toggle handlers
+    treeEl.querySelectorAll('.tree-folder').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const toggle = el.querySelector('.tree-toggle');
+        const children = el.nextElementSibling;
+        if (children && children.classList.contains('tree-children')) {
+          const isOpen = children.style.display !== 'none';
+          children.style.display = isOpen ? 'none' : 'block';
+          toggle.textContent = isOpen ? '▶' : '▼';
+        }
+      });
     });
+
+    // Tree file click
+    treeEl.querySelectorAll('.tree-file').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const path = el.dataset.path;
+        loadLibraryFile(path);
+        // Highlight
+        treeEl.querySelectorAll('.tree-file.selected').forEach(f => f.classList.remove('selected'));
+        el.classList.add('selected');
+      });
+    });
+
+    // Default: show root folder contents
+    const rootFiles = files;
+    const rootFolders = folders;
+    renderLibraryEntries(rootFiles, rootFolders, '📂 전체 파일');
+
     state.initialLoaded['library'] = true;
   } catch (err) {
     container.innerHTML = errorState(err);
   } finally {
     if (isFirst) showLoading('loading-library', false);
   }
+}
+
+async function renderLibraryEntries(files, folders, breadcrumb) {
+  const entriesEl = document.getElementById('library-entries');
+  const breadcrumbEl = document.getElementById('library-breadcrumb');
+  breadcrumbEl.textContent = breadcrumb;
+
+  let html = '';
+
+  // Folders first
+  if (folders && folders.length > 0) {
+    html += `<div class="library-section-label">📁 폴더</div>`;
+    html += `<div class="library-grid">`;
+    for (const folder of folders) {
+      html += `<div class="card library-card library-folder-card clickable-card" data-folder="${esc(folder.name)}">
+        <div class="library-card-icon">📁</div>
+        <div class="library-card-info">
+          <div class="library-card-name">${esc(folder.name)}</div>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (files && files.length > 0) {
+    html += `<div class="library-section-label">📄 파일</div>`;
+    html += `<div class="library-grid">`;
+    for (const f of files) {
+      html += `<div class="card library-card clickable-card" data-name="${esc(f.name)}">
+        <div class="library-card-icon">${fileIcon(f.extension)}</div>
+        <div class="library-card-info">
+          <div class="library-card-name">${esc(f.name)}</div>
+          <div class="library-card-meta">${formatFileSize(f.size)} · ${relativeTime(f.modified)}</div>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+
+  if ((!files || files.length === 0) && (!folders || folders.length === 0)) {
+    html = emptyState('📚', '이 폴더에 파일이 없습니다');
+  }
+
+  entriesEl.innerHTML = html;
+
+  // File click
+  entriesEl.querySelectorAll('.library-card[data-name]').forEach(card => {
+    card.addEventListener('click', () => loadLibraryFile(card.dataset.name));
+  });
+
+  // Folder click → navigate into subfolder
+  entriesEl.querySelectorAll('.library-folder-card').forEach(card => {
+    card.addEventListener('click', async () => {
+      const folderName = card.dataset.folder;
+      const currentBreadcrumb = breadcrumbEl.textContent;
+      try {
+        const data = await apiFetch(`/api/library/ls?path=${encodeURIComponent(folderName)}`);
+        const subFiles = data.files || [];
+        const subFolders = data.folders || [];
+        renderLibraryEntries(subFiles, subFolders, currentBreadcrumb + ' / ' + folderName);
+      } catch (err) {
+        entriesEl.innerHTML = errorState(err);
+      }
+    });
+  });
 }
 
 async function loadLibraryFile(name) {
@@ -991,6 +1300,7 @@ const TAB_LOADERS = {
   activity: loadActivity,
   library: loadLibrary,
   activeSessions: loadActiveSessions,
+  subagents: loadSubagents,
   journal: loadJournal,
   tetris: loadTetris,
 };

@@ -107,6 +107,10 @@ app.get('/api/agents', async (req, res) => {
         };
       }
       agentMap[agentId].sessionCount++;
+      const isSubagent = session.key && session.key.includes(':subagent:');
+      if (isSubagent) {
+        agentMap[agentId].subagentCount = (agentMap[agentId].subagentCount || 0) + 1;
+      }
       agentMap[agentId].sessions.push({
         key: session.key,
         sessionId: session.sessionId,
@@ -114,7 +118,8 @@ app.get('/api/agents', async (req, res) => {
         ageMs: session.ageMs,
         totalTokens: session.totalTokens,
         model: session.model,
-        kind: session.kind
+        kind: session.kind,
+        isSubagent,
       });
     }
     
@@ -350,12 +355,58 @@ app.get('/api/agents/:agentId/detail', async (req, res) => {
   }
 });
 
-// GET /api/library — list files in team-library directory
+// GET /api/agents/:agentId/subagents — all subagent sessions for this agent
+app.get('/api/agents/:agentId/subagents', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const sessions = await fetchAllSessions();
+    const agentSessions = sessions
+      .filter(s => s.agentId === agentId && s.key && s.key.includes(':subagent:'))
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const subagents = agentSessions.map(s => {
+      const isActive = s.status === 'running' || s.status === 'active';
+      let task = '작업중';
+      if (!isActive) {
+        task = '대기중';
+      } else if (s.kind === 'subagent' || s.kind === 'spawned') {
+        task = '서브작업 진행중';
+      }
+      let lastActivity = '';
+      try {
+        const sessionsDir = `/home/thefool/.openclaw/agents/${agentId}/sessions`;
+        const jsonlPath = path.join(sessionsDir, `${s.sessionId}.jsonl`);
+        const stat = fs.statSync(jsonlPath);
+        lastActivity = stat.mtime.toISOString();
+      } catch {}
+      return {
+        sessionId: s.sessionId,
+        key: s.key,
+        model: s.model,
+        modelOverride: s.modelOverride,
+        status: s.status,
+        updatedAt: s.updatedAt,
+        ageMs: s.ageMs,
+        totalTokens: s.totalTokens,
+        inputTokens: s.inputTokens,
+        outputTokens: s.outputTokens,
+        task,
+        isActive,
+        lastActivity,
+      };
+    });
+    res.json({ subagents, count: subagents.length });
+  } catch (err) {
+    console.error(`/api/agents/${req.params.agentId}/subagents error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/library — list files AND folders in team-library directory
 app.get('/api/library', async (req, res) => {
   try {
     const libraryDir = '/home/thefool/team-library/';
     if (!fs.existsSync(libraryDir)) {
-      return res.json({ files: [], count: 0 });
+      return res.json({ files: [], folders: [], count: 0 });
     }
     const entries = fs.readdirSync(libraryDir, { withFileTypes: true });
     const files = entries
@@ -371,9 +422,66 @@ app.get('/api/library', async (req, res) => {
           extension: ext,
         };
       });
-    res.json({ files, count: files.length });
+    const folders = entries
+      .filter(e => e.isDirectory())
+      .map(e => ({ name: e.name }));
+    res.json({ files, folders, count: files.length + folders.length });
   } catch (err) {
     console.error('/api/library error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/library/tree — recursive folder tree for team-library
+app.get('/api/library/tree', async (req, res) => {
+  try {
+    const libraryDir = '/home/thefool/team-library/';
+    function buildTree(dir, base = '') {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const result = [];
+      for (const e of entries) {
+        const relPath = base ? `${base}/${e.name}` : e.name;
+        if (e.isDirectory()) {
+          result.push({ name: e.name, path: relPath, type: 'folder', children: buildTree(path.join(dir, e.name), relPath) });
+        } else {
+          const fullPath = path.join(dir, e.name);
+          const stat = fs.statSync(fullPath);
+          result.push({ name: e.name, path: relPath, type: 'file', size: stat.size, modified: stat.mtime.toISOString(), extension: path.extname(e.name).toLowerCase() });
+        }
+      }
+      return result;
+    }
+    const tree = buildTree(libraryDir);
+    res.json({ tree });
+  } catch (err) {
+    console.error('/api/library/tree error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/library/ls — list contents of a specific folder path
+app.get('/api/library/ls', async (req, res) => {
+  try {
+    const libraryDir = '/home/thefool/team-library/';
+    const requestedPath = req.query.path || '';
+    // Security: prevent path traversal
+    const fullDir = path.join(libraryDir, requestedPath);
+    if (!path.resolve(fullDir).startsWith(path.resolve(libraryDir))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (!fs.existsSync(fullDir)) {
+      return res.json({ files: [], folders: [], count: 0 });
+    }
+    const entries = fs.readdirSync(fullDir, { withFileTypes: true });
+    const files = entries.filter(e => e.isFile()).map(e => {
+      const fullPath = path.join(fullDir, e.name);
+      const stat = fs.statSync(fullPath);
+      return { name: e.name, size: stat.size, modified: stat.mtime.toISOString(), extension: path.extname(e.name).toLowerCase() };
+    });
+    const folders = entries.filter(e => e.isDirectory()).map(e => ({ name: e.name }));
+    res.json({ files, folders, count: files.length + folders.length });
+  } catch (err) {
+    console.error('/api/library/ls error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -440,6 +548,36 @@ app.get('/api/active-sessions', async (req, res) => {
     res.json({ sessions: running, count: running.length });
   } catch (err) {
     console.error('/api/active-sessions error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/subagents — all sessions grouped by agent with subagent tree
+app.get('/api/subagents', async (req, res) => {
+  try {
+    const sessions = await fetchAllSessions();
+    const result = {};
+    for (const s of sessions) {
+      const aid = s.agentId || 'unknown';
+      if (!result[aid]) result[aid] = [];
+      result[aid].push({
+        agentId: aid,
+        sessionId: s.sessionId,
+        key: s.key,
+        kind: s.kind,
+        model: s.model,
+        modelOverride: s.modelOverride,
+        status: s.status,
+        updatedAt: s.updatedAt,
+        ageMs: s.ageMs,
+        totalTokens: s.totalTokens,
+        inputTokens: s.inputTokens,
+        outputTokens: s.outputTokens,
+      });
+    }
+    res.json({ agents: result, totalSessions: sessions.length });
+  } catch (err) {
+    console.error('/api/subagents error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
