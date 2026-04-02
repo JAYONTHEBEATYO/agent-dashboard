@@ -256,7 +256,7 @@ function renderDetailPanelHeader(agentId, data) {
   document.getElementById('detail-panel-close-btn')?.addEventListener('click', closeDetailPanel);
 }
 
-function renderDetailPanelTab(tab, data) {
+async function renderDetailPanelTab(tab, data) {
   const content = document.getElementById('detail-panel-content');
   if (!content) return;
 
@@ -464,6 +464,7 @@ async function loadAgents() {
       const isIdle = a.status === 'idle';
       const statusIcon = isActive ? '🟢' : isIdle ? '🟡' : a.status === 'sleeping' ? '🟠' : '⚫';
       const taskLabel = isActive ? '🔨 ' + (a.statusLabel || '작업중') : isIdle ? '💤 ' + (a.statusLabel || '대기중') : a.statusLabel || '';
+      const taskDetail = a.currentTask ? ` · ${esc(a.currentTask)}` : '';
       return `
       <div class="card agent-card clickable-card" data-agent-id="${esc(agentId)}">
         <div class="agent-card-header">
@@ -479,7 +480,7 @@ async function loadAgents() {
             ${subagentCount > 0 ? `<span class="subagent-badge" title="서브에이전트 ${subagentCount}개">🌲 ${subagentCount}</span>` : ''}
           </div>
         </div>
-        ${isActive || isIdle ? `<div class="agent-task-banner agent-task-${a.status}">${taskLabel}</div>` : ''}
+        ${isActive || isIdle ? `<div class="agent-task-banner agent-task-${a.status}" title="${esc(a.currentTask || '')}">${taskLabel}${taskDetail}</div>` : ''}
         <div class="agent-stats">
           <div class="stat-item">
             <span class="stat-label">토큰</span>

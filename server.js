@@ -29,6 +29,21 @@ async function fetchAllSessions() {
   return data.sessions || [];
 }
 
+// Simple in-memory cache for fetchAllSessions (10s TTL)
+let _sessionsCache = null;
+let _sessionsCacheTime = 0;
+const SESSIONS_CACHE_TTL = 30000; // 30 seconds
+
+async function fetchAllSessionsCached() {
+  const now = Date.now();
+  if (_sessionsCache && (now - _sessionsCacheTime) < SESSIONS_CACHE_TTL) {
+    return _sessionsCache;
+  }
+  _sessionsCache = await fetchAllSessions();
+  _sessionsCacheTime = now;
+  return _sessionsCache;
+}
+
 // Utility: glob JSONL files for all agents
 async function getAllJsonlFiles() {
   const agentsDir = '/home/thefool/.openclaw/agents';
@@ -79,10 +94,25 @@ async function parseJsonlFile(filePath) {
   });
 }
 
+// Fast: get last line of JSONL file only
+function getLastJsonlLine(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    if (lines.length === 0) return null;
+    const last = lines[lines.length - 1].trim();
+    if (!last) return null;
+    return JSON.parse(last);
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/agents — agent list with latest session state
 app.get('/api/agents', async (req, res) => {
   try {
-    const sessions = await fetchAllSessions();
+    const sessions = await fetchAllSessionsCached();
     
     // Group sessions by agentId, pick the most recent (first, since sorted by updatedAt desc)
     const agentMap = {};
@@ -111,16 +141,19 @@ app.get('/api/agents', async (req, res) => {
       if (isSubagent) {
         agentMap[agentId].subagentCount = (agentMap[agentId].subagentCount || 0) + 1;
       }
-      agentMap[agentId].sessions.push({
-        key: session.key,
-        sessionId: session.sessionId,
-        updatedAt: session.updatedAt,
-        ageMs: session.ageMs,
-        totalTokens: session.totalTokens,
-        model: session.model,
-        kind: session.kind,
-        isSubagent,
-      });
+      // Only keep top 3 sessions per agent for grid display
+      if (agentMap[agentId].sessions.length < 3) {
+        agentMap[agentId].sessions.push({
+          key: session.key,
+          sessionId: session.sessionId,
+          updatedAt: session.updatedAt,
+          ageMs: session.ageMs,
+          totalTokens: session.totalTokens,
+          model: session.model,
+          kind: session.kind,
+          isSubagent,
+        });
+      }
     }
     
     const now = Date.now();
@@ -148,7 +181,50 @@ app.get('/api/agents', async (req, res) => {
           : ageMs < 86400000
             ? `${Math.floor(ageMs/3600000)}시간 전`
             : `${Math.floor(ageMs/86400000)}일 전`;
-      return { ...agent, status, statusLabel, lastActivityAgo, ageMs };
+
+      // Get current task from latest session's last message (only for active/idle agents)
+      let currentTask = '';
+      if (ageMs < 30 * 60 * 1000 && agent.latestSessionId) {
+        try {
+          const sessionsDir = `/home/thefool/.openclaw/agents/${agent.agentId}/sessions`;
+          const jsonlPath = path.join(sessionsDir, `${agent.latestSessionId}.jsonl`);
+          const lastMsg = getLastJsonlLine(jsonlPath);
+          if (lastMsg) {
+            const content = lastMsg.message?.content || lastMsg.content || '';
+            let text = '';
+            if (Array.isArray(content)) {
+              text = content.filter(c => c.type === 'text' && c.text).map(c => c.text).join('\n');
+            } else if (typeof content === 'string') {
+              text = content;
+            } else if (typeof content === 'object' && content !== null) {
+              text = content.text || '';
+            }
+            if (text) {
+              // Remove internal template markers, tool artifacts, system messages
+              text = text.replace(/\$\{[^}]+\}/g, ' ');
+              text = text.replace(/\[\[[^\]]+\]\]/g, ' ');
+              text = text.replace(/```[\s\S]*?```/g, ' ');
+              // Skip Conversation info / system metadata / command output
+              text = text.replace(/^Conversation info[\s\S]*$/gm, ' ');
+              text = text.replace(/^Command (still )?running[\s\S]*$/gm, ' ');
+              text = text.replace(/^System:[\s\S]*$/gm, ' ');
+              text = text.replace(/^\[.*?\][^\[]*$/gm, ' '); // skip [prefix] lines
+              // Take last meaningful line
+              const lines = text.split('\n').filter(l => {
+                const t = l.trim();
+                return t.length > 8 && !t.startsWith('{') && !t.startsWith('[[') && !t.startsWith('Command');
+              });
+              text = lines[lines.length - 1] || lines[0] || '';
+              text = text.replace(/\s+/g, ' ').trim();
+              if (text.length > 10) {
+                currentTask = text.length > 45 ? text.slice(0, 45) + '…' : text;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      return { ...agent, status, statusLabel, lastActivityAgo, ageMs, currentTask };
     });
     res.json({ agents, count: agents.length });
   } catch (err) {
@@ -364,12 +440,24 @@ app.get('/api/agents/:agentId/subagents', async (req, res) => {
       .filter(s => s.agentId === agentId && s.key && s.key.includes(':subagent:'))
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
     const subagents = agentSessions.map(s => {
-      const isActive = s.status === 'running' || s.status === 'active';
+      // Use ageMs as proxy: updated within 2min = active
+      const ageMs = s.ageMs || 0;
+      const isActive = ageMs < 2 * 60 * 1000;
       let task = '작업중';
       if (!isActive) {
         task = '대기중';
-      } else if (s.kind === 'subagent' || s.kind === 'spawned') {
-        task = '서브작업 진행중';
+      } else {
+        // Extract hint from session key (e.g. cron job name, subagent purpose)
+        const key = s.key || '';
+        // Try to get meaningful task name from key parts
+        const parts = key.split(':');
+        let hint = '';
+        if (parts.length >= 3) {
+          hint = parts[parts.length - 1];
+          // Clean up UUID-like strings
+          if (hint.length > 15) hint = '';
+        }
+        task = hint || '서브작업 진행중';
       }
       let lastActivity = '';
       try {
